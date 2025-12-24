@@ -1,0 +1,1 @@
+SPARSE_VECTOR_NAME = "sparse"
