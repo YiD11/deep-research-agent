@@ -1,58 +1,96 @@
-# Deep Research Agent 🕵️‍♂️
+# Deep Research Agent
 
-**不仅仅是问答，而是深度的研究与思考。**
+一个基于 LangGraph/LangChain 的研究助手，参考 [RAGentA 论文](https://github.com/tobiasschreieder/LiveRAG) 的 Claim Analysis 机制实现。
 
-Deep Research Agent 是一个基于 **LangGraph** 和 **LangChain** 构建的下一代智能研究助手。它超越了传统的 RAG（检索增强生成）系统，通过模拟人类研究员的思维过程——**拆解问题、并行探索、综合汇总**——来解决复杂的查询任务。
+## 核心功能
 
-## 🌟 核心亮点
+1. **问题分解** - 将复杂问题拆解为可独立检索的子问题
+2. **向量检索** - 基于 Qdrant 的语义搜索
+3. **声明提取** - 从答案中提取带引用的原子声明
+4. **覆盖度分析** - 判断答案是否完整覆盖问题各组成部分
+5. **智能补全** - 对未回答的方面补充检索
 
-*   **🧠 动态思维链**: 能够自动分析模糊的用户指令，将其重写并拆解为多个清晰的研究子问题。
-*   **⚡ 并行研究引擎**: 针对拆解出的子问题，并行启动多个 Agent 进行独立探索，大幅提升研究效率。
-*   **🔍 深度 RAG 检索**: 结合语义理解与文档切片技术，深入挖掘私有知识库细节，提供有理有据的精准回答。
-*   **📝 结构化综合**: 将来自不同视角的检索结果智能聚合成逻辑严密、内容详实的最终答案，拒绝简单的片段拼接。
-*   **🧩 MCP 生态兼容**: 原生支持 **Model Context Protocol (MCP)**，可轻松扩展工具库，连接无限可能。
+## 架构
 
-## 🛠️ 技术栈
+### 整体流程
 
-本项目站在巨人的肩膀上：
-*   **Orchestration**: [LangGraph](https://github.com/langchain-ai/langgraph) (Stateful Agents)
-*   **Framework**: [LangChain](https://github.com/langchain-ai/langchain)
-*   **Vector DB**: Qdrant / Milvus
-*   **Serving**: FastAPI & Uvicorn
-*   **UI**: Gradio
+```
+用户输入 → [summarize] → [analyze_rewrite] → [process_question并行子图] → [aggregate] → 最终答案
+                              ↓
+                    rag_agent → extract_answer → extract_claims → analyze_claims → process_follow_ups
+```
 
-## 🚀 快速开始
+### 子图详解 (process_question)
 
-### 1. 环境准备
+每个子问题进入以下处理流程：
 
-本项目使用 `uv` 进行依赖管理（也可以使用 pip）。
+1. **rag_agent** - 使用向量检索+MCP工具生成带 `[X]` 引用格式的答案
+2. **extract_answer** - 从agent消息中提取最终答案
+3. **extract_claims** - 用正则/LLM从答案中提取原子声明及其引用
+4. **analyze_claims** - LLM分析：
+   - 问题结构 (SINGLE/MULTIPLE)
+   - 各声明回答了哪些问题组件
+   - 每个组件的覆盖状态 (FULLY/PARTIALLY/NOT_ANSWERED)
+   - 生成未回答组件的后续问题
+5. **process_follow_ups** - 对每个后续问题：
+   - 检索新文档
+   - 生成答案并标注引用
+   - 整合进原答案
+
+### 状态定义
+
+**GraphState** (主图):
+- `rewrittenQuestions`: 分解后的子问题列表
+- `agent_answers`: 各子问题的答案
+- `all_claims`: 所有声明
+- `claim_analysis`: 声明分析结果
+
+**QuestionAnswerState** (子图):
+- `question`: 当前子问题
+- `answer_with_citations`: 带引用的答案
+- `claims`: 提取的声明列表
+- `claim_analysis`: 分析结果
+
+## 快速开始
 
 ```bash
-# 使用 uv (推荐)
+# 安装依赖
 uv sync
 
-# 或者使用 pip
-pip install .
-```
-
-### 2. 配置
-
-复制 `.env.example` 为 `.env` 并填入你的 API Key 和配置信息。
-
-```bash
-cp .env.example .env
-```
-
-### 3. 启动基础设施
-
-本项目依赖 Qdrant，请确保已安装 Docker 和 Docker Compose。
-
-```bash
+# 启动Qdrant
 docker-compose up -d
+
+# 运行
+uv run python main.py      # FastAPI (8000)
+uv run python app.py       # Gradio UI (8080)
 ```
 
-### 4. 启动应用
+## 目录结构
 
-```bash
-python main.py
 ```
+├── core/rag.py      # RagSystem入口
+├── pkg/graph.py     # LangGraph定义 + RAGentA逻辑
+├── const/prompt.py  # 提示词模板
+├── model/qa.py      # 数据模型
+├── db/              # 存储层 (Qdrant + 文件)
+└── ui/              # Gradio界面
+```
+
+## 主要文件
+
+| 文件 | 职责 |
+|------|------|
+| `pkg/graph.py` | claim提取、分析、补全节点 |
+| `const/prompt.py` | CLAIM_ANALYSIS_PROMPT 等 |
+| `model/qa.py` | Claim, ClaimAnalysis 模型 |
+
+## 环境变量
+
+见 `.env.example`：
+- LLM配置 (`LLM_MODEL_NAME`, `LLM_BASE_URL`, `LLM_API_KEY`)
+- Qdrant配置 (`QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_COLLECTION_NAME`)
+- 知识库路径 (`MARKDOWN_FILE_PATH`)
+
+## 致谢
+
+受 [RAGentA: Multi-Agent RAG for Attributed Question Answering](https://github.com/tobiasschreieder/LiveRAG) 启发实现了 Claim Analysis 机制。
