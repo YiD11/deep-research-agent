@@ -13,7 +13,7 @@ class FileStorageManager:
     _store_path: Path
 
     def __init__(self, store_path: str = None):
-        store_path = store_path or os.getenv("FILE_STORAGE_PATH", "./data")
+        store_path = store_path or os.getenv("FILE_STORE_PATH", "./data")
         self._store_path = Path(store_path)
         self._store_path.mkdir(parents=True, exist_ok=True)
 
