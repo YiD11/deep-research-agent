@@ -24,8 +24,9 @@ from test.dummy import TEST_MARKDOWN_CONTENT
 from const.document import META_SOURCE_FILE_CHUNK_ID_KEY, META_SOURCE_FILE_KEY
 from db.file import FileStorageManager
 from db.vector import VectorDBManager, get_vector_db_manager
+from langgraph.checkpoint.memory import InMemorySaver
 from pkg.graph import create_agent_graph
-from util.tool import retrieve_file_chunks, search_vector_chunk
+from util.tool import create_retrieve_file_chunks_tool, create_vector_search_tool
 from util.doc import chunk_markdown
 from util.llm import load_llm
 
@@ -96,8 +97,11 @@ def test_graph_call(
     assert found_relevant, "Search results should contain relevant content"
 
     llm = load_llm()
-    tools = [retrieve_file_chunks, search_vector_chunk]
-    graph = create_agent_graph(llm, tools)
+    retrieve_file_chunks_tool = create_retrieve_file_chunks_tool(file_storage)
+    vector_search_tool = create_vector_search_tool(TEST_COLLECTION_NAME)
+    tools = [retrieve_file_chunks_tool, vector_search_tool]
+    checkpointer = InMemorySaver()
+    graph = create_agent_graph(llm, tools, checkpointer)
 
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
     input_message = {

@@ -28,8 +28,8 @@ def create_gradio_ui():
     async def handle_chat(msg, hist):
         return await rag_system.chat(msg, hist)
 
-    def clean_session():
-        rag_system.clean_all_documents()
+    async def clean_session():
+        await rag_system.clean_session()
 
     with gr.Blocks(title="Agentic RAG") as demo:
 

@@ -17,11 +17,28 @@ class FileStorageManager:
         self._store_path = Path(store_path)
         self._store_path.mkdir(parents=True, exist_ok=True)
 
+    def save(self, id: str, content: str, metadata: dict) -> None:
+        """Save a single document by ID."""
+        file_path = self._store_path / f"{id}.json"
+        data = {"id": id, "content": content, "metadata": metadata}
+        with open(file_path, "w+", encoding="utf-8") as fp:
+            json.dump(data, fp, ensure_ascii=False, indent=2)
+
+    def load(self, id: str) -> dict | None:
+        """Load a single document by ID."""
+        file_path = self._store_path / (id if id.endswith(".json") else f"{id}.json")
+        if not file_path.exists():
+            return None
+        with open(file_path, "r", encoding="utf-8") as fp:
+            return json.load(fp)
+
     def save_batch(self, batch: List[Document]) -> None:
         for doc in batch:
-            file_path = self._store_path / f"{doc.metadata[META_SOURCE_FILE_CHUNK_ID_KEY]}.json"
+            file_path = (
+                self._store_path / f"{doc.metadata[META_SOURCE_FILE_CHUNK_ID_KEY]}.json"
+            )
             s = doc.model_dump_json(indent=2, ensure_ascii=False)
-            with open(file_path, "w+", encoding='utf-8') as fp:
+            with open(file_path, "w+", encoding="utf-8") as fp:
                 fp.write(s)
 
     def load_batch(self, paths: List[str]) -> List[Document]:
@@ -33,7 +50,7 @@ class FileStorageManager:
         docs = []
         for p in files_paths:
             if p.exists():
-                with open(p, "r", encoding='utf-8') as fp:
+                with open(p, "r", encoding="utf-8") as fp:
                     s = fp.read()
                 doc = Document.model_validate_json(s)
                 docs.append(doc)

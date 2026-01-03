@@ -27,7 +27,7 @@ from const.prompt import (
     CLAIM_EXTRACTION_PROMPT,
     FOLLOW_UP_ANSWER_PROMPT,
 )
-from model import Claim, ClaimAnalysis, QueryAnalysis, QuesntionAnswer
+from model import Claim, ClaimAnalysis, QueryAnalysis, QuestionAnswer
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class GraphState(MessagesState):
     conversation_summary: str
     originalQuery: str
     rewrittenQuestions: List[str]
-    agent_answers: Annotated[List[QuesntionAnswer], accumulate_or_reset]
+    agent_answers: Annotated[List[QuestionAnswer], accumulate_or_reset]
     # RAGentA-inspired fields
     all_claims: List[Claim] = []
     claim_analysis: Optional[ClaimAnalysis] = None
@@ -57,7 +57,7 @@ class QuestionAnswerState(AgentState):
     question: str
     question_index: int
     final_answer: str
-    agent_answers: List[QuesntionAnswer]
+    agent_answers: List[QuestionAnswer]
     # RAGentA-inspired fields
     claims: List[Claim] = []
     answer_with_citations: str = ""
@@ -88,8 +88,14 @@ async def analyze_chat_and_summarize(
         HumanMessage(content=conversation)
     ]
     summary_response = await agent_graph.ainvoke(AgentState(messages=messages))
+    last_msg = (
+        summary_response.get("messages", [])[-1]
+        if summary_response.get("messages")
+        else None
+    )
+    summary_content = last_msg.content if last_msg else ""
     return {
-        "conversation_summary": summary_response.content,
+        "conversation_summary": summary_content,
         "agent_answers": [{"__reset__": True}],
     }
 
@@ -286,7 +292,8 @@ def parse_claim_analysis(analysis_text: str) -> ClaimAnalysis:
         for line in coverage_text.split("\n"):
             comp_match = re.search(
                 r"-\s*(?:Component \d+:)?\s*(.+?):\s*(FULLY|PARTIALLY|NOT)\s*ANSWERED",
-                line, re.I
+                line,
+                re.I,
             )
             if comp_match:
                 component = comp_match.group(1).strip()
@@ -307,13 +314,17 @@ def parse_claim_analysis(analysis_text: str) -> ClaimAnalysis:
 
     # Extract unanswered components
     unanswered_match = re.search(
-        r"UNANSWERED COMPONENTS:(.*?)(?=FOLLOW-UP QUESTIONS:|$)", analysis_text, re.DOTALL
+        r"UNANSWERED COMPONENTS:(.*?)(?=FOLLOW-UP QUESTIONS:|$)",
+        analysis_text,
+        re.DOTALL,
     )
     if unanswered_match:
         unanswered_text = unanswered_match.group(1).strip()
         if unanswered_text.lower() not in ["none", ""]:
             components = re.findall(r"-\s*(.+)", unanswered_text)
-            result["unanswered_components"] = [c.strip() for c in components if c.strip()]
+            result["unanswered_components"] = [
+                c.strip() for c in components if c.strip()
+            ]
 
     # Extract follow-up questions
     followup_match = re.search(r"FOLLOW-UP QUESTIONS:(.*?)$", analysis_text, re.DOTALL)
@@ -321,22 +332,19 @@ def parse_claim_analysis(analysis_text: str) -> ClaimAnalysis:
         followup_text = followup_match.group(1).strip()
         if followup_text.lower() not in ["none", ""]:
             questions = re.findall(r"-\s*(.+)", followup_text)
-            result["follow_up_questions"] = [q.strip() for q in questions if q.strip() and "?" in q]
+            result["follow_up_questions"] = [
+                q.strip() for q in questions if q.strip() and "?" in q
+            ]
 
     # Determine if completely answered
-    result["completely_answered"] = (
-        len(result["unanswered_components"]) == 0
-        or all(
-            c.lower() in ["none", ""] for c in result["unanswered_components"]
-        )
+    result["completely_answered"] = len(result["unanswered_components"]) == 0 or all(
+        c.lower() in ["none", ""] for c in result["unanswered_components"]
     )
 
     return ClaimAnalysis(**result)
 
 
-async def analyze_claims(
-    state: QuestionAnswerState, llm: BaseChatModel
-) -> Dict:
+async def analyze_claims(state: QuestionAnswerState, llm: BaseChatModel) -> Dict:
     """Analyze claims against question components (Agent 4: Claim Judge)."""
     question = state["question"]
     answer = state.get("answer_with_citations", "")
@@ -418,11 +426,16 @@ async def process_follow_ups(
                 docs_text=docs_text,
             )
 
-            follow_up_response = await llm.ainvoke([SystemMessage(content=follow_up_prompt)])
+            follow_up_response = await llm.ainvoke(
+                [SystemMessage(content=follow_up_prompt)]
+            )
             follow_up_answer = follow_up_response.content
 
             # Skip if can't answer
-            if "cannot answer" in follow_up_answer.lower() and "available information" in follow_up_answer.lower():
+            if (
+                "cannot answer" in follow_up_answer.lower()
+                and "available information" in follow_up_answer.lower()
+            ):
                 continue
 
             # Integrate with previous answer
@@ -432,7 +445,9 @@ async def process_follow_ups(
                 new_answer=follow_up_answer,
             )
 
-            integration_response = await llm.ainvoke([SystemMessage(content=integration_prompt)])
+            integration_response = await llm.ainvoke(
+                [SystemMessage(content=integration_prompt)]
+            )
             current_answer = integration_response.content
 
         except Exception as e:
@@ -455,7 +470,7 @@ async def aggregate_responses(state: GraphState, llm):
     user_message = HumanMessage(
         content=f"""Original user question: {state["originalQuery"]}\nRetrieved answers:{formatted_answers}"""
     )
-    synthesis_response = llm.invoke(
+    synthesis_response = await llm.ainvoke(
         [SystemMessage(content=AGGREGATION_AGENT_PROMPT)] + [user_message]
     )
 

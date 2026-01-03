@@ -44,7 +44,9 @@ class ReActAgent:
             self.state_schema = AgentState
 
         if self.output_schema is not None:
-            if isinstance(self.output_schema, type(BaseModel)):
+            if isinstance(self.output_schema, type) and issubclass(
+                self.output_schema, BaseModel
+            ):
                 schema = self.output_schema.model_json_schema()
             else:
                 schema = self.output_schema
@@ -154,7 +156,9 @@ class ReActAgent:
     ) -> Dict[str, Any] | BaseModel:
         SUMMARY_PROMPT = "According to the above information, summarize and output the structured data. DO NOT output any other text."
         messages = state["messages"] + [SystemMessage(content=SUMMARY_PROMPT)]
-        if isinstance(self.output_schema, BaseModel):
+        if isinstance(self.output_schema, type) and issubclass(
+            self.output_schema, BaseModel
+        ):
             output_schema = self.output_schema.model_json_schema()
         else:
             output_schema = self.output_schema
@@ -162,7 +166,9 @@ class ReActAgent:
             output_schema, method="json_schema"
         ).with_config(temperature=0.0)
         response = await llm.ainvoke(messages)
-        if isinstance(self.output_schema, type(BaseModel)):
+        if isinstance(self.output_schema, type) and issubclass(
+            self.output_schema, BaseModel
+        ):
             ret = self.output_schema.model_validate(response)
             return ret
         return response

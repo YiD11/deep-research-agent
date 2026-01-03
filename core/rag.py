@@ -50,7 +50,7 @@ class RagSystem:
         mcp_tools = asyncio.get_event_loop().run_until_complete(get_all_mcp_tools())
         retrieve_file_chunks_tool = create_retrieve_file_chunks_tool(self.file_store)
         vector_search_tool = create_vector_search_tool(self.collection_name)
-        all_tools = [retrieve_file_chunks_tool, vector_search_tool, mcp_tools]
+        all_tools = [retrieve_file_chunks_tool, vector_search_tool] + mcp_tools
 
         if markdown_dir is None:
             markdown_dir = os.getenv("MARKDOWN_FILE_PATH")
@@ -66,11 +66,13 @@ class RagSystem:
     def add_documents(
         self,
         document_paths: List[str],
-        progess: gradio.Progress,
+        progress: gradio.Progress,
     ):
         total = len(document_paths)
         document_paths = list(filter(lambda x: x.endswith(".md"), document_paths))
-        pbar = progess.tqdm(iterable=range(total), total=total, desc="Adding documents")
+        pbar = progress.tqdm(
+            iterable=range(total), total=total, desc="Adding documents"
+        )
         if not all([Path(x).exists() for x in document_paths]):
             raise FileNotFoundError("Some documents do not exist")
 
@@ -108,7 +110,7 @@ class RagSystem:
         message: str,
         history: List[AnyMessage],
     ):
-        config = {"thread_id": self.thread_id}
+        config = {"configurable": {"thread_id": self.thread_id}}
         response = await self.agent_graph.ainvoke(
             AgentState(messages=[HumanMessage(content=message)]),
             config=config,
@@ -117,5 +119,6 @@ class RagSystem:
         return ret
 
     async def clean_session(self):
-        await self.agent_checkpointer.adelete_thread(self.thread_id)
+        if hasattr(self.agent_checkpointer, "adelete_thread"):
+            await self.agent_checkpointer.adelete_thread(self.thread_id)
         self.thread_id = uuid.uuid4().hex
